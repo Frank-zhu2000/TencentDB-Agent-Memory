@@ -697,10 +697,11 @@ export class SessionStore {
     if (messages.length === 0) return undefined;
 
     // Count user messages and check for assistant/tool existence.
-    // dsh (deepseek-harness) 首帧 body 里塞 3 条**非用户输入**的 role=user 元数据:
+    // dsh (deepseek-harness) 首帧 body 里塞多条**非用户输入**的 role=user 元数据:
     //   - <system-reminder> 工作区指令
     //   - "Current runtime context." 快照
     //   - <available_skills> 列表
+    //   - <skill_content ...> 已加载 skill 正文（slash command 触发时）
     // 若原样计数 userCount>1 会把 dsh 首帧误判为"有历史",触发 markerless
     // one-shot bypass,session-init form 永远不弹。这里跳过 dsh 元数据 user 消息,
     // 只计"真用户输入"。见 docs/dsh-recon/2026-08-14-dsh-capture-analysis.md §2.3。
@@ -720,7 +721,8 @@ export class SessionStore {
         if (
           c.startsWith("<system-reminder>") ||
           isDshRuntimeContextSnapshot(c) ||
-          c.startsWith("<system-reminder>\nA skill is a reusable")
+          c.startsWith("<system-reminder>\nA skill is a reusable") ||
+          c.startsWith("<skill_content")
         ) {
           continue;
         }
