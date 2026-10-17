@@ -1,10 +1,10 @@
 /**
  * Resolve the v3 isolation agent id for one OpenClaw request.
  *
- * 1.0 took the id from the runtime session key (`agent:<agentId>:<rest>`).
- * Configured `server.agentId`, then `"default"`, apply only when that runtime
- * id is unavailable. OpenClaw does not support per-agent plugin config, so a
- * single static `server.agentId` cannot isolate multiple agents.
+ * Order: `agent:<id>:<rest>` on the session key, then non-empty `ctx.agentId`,
+ * then configured `server.agentId`, then `"default"`. OpenClaw does not
+ * support per-agent plugin config, so a single static `server.agentId`
+ * cannot isolate multiple agents.
  */
 
 export function extractAgentId(sessionKey: unknown): string | undefined {

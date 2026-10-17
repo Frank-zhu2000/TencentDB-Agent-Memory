@@ -86,9 +86,16 @@ export default function register(api: any) {
     serviceId: instanceId,
   });
 
-  function clientFor(ctx: { sessionKey?: unknown; agentId?: unknown; sessionId?: unknown } | null | undefined) {
+  // Tools omit includeSession. The SDK copies a client sessionId into search
+  // bodies when the call omits session_id, so an omitted session_key would
+  // only search the current session. Hooks still scope the turn.
+  function clientFor(
+    ctx: { sessionKey?: unknown; agentId?: unknown; sessionId?: unknown } | null | undefined,
+    opts?: { includeSession?: boolean },
+  ) {
     const requestAgentId = resolveRequestAgentId(ctx, server.agentId);
-    const sessionId = typeof ctx?.sessionId === "string" && ctx.sessionId ? ctx.sessionId : undefined;
+    const rawSession = opts?.includeSession ? ctx?.sessionId : undefined;
+    const sessionId = typeof rawSession === "string" && rawSession ? rawSession : undefined;
     return client.withIsolation(sessionId ? { agentId: requestAgentId, sessionId } : { agentId: requestAgentId });
   }
 
@@ -199,7 +206,7 @@ export default function register(api: any) {
 
     try {
       // Scope recall to this turn's runtime agent, and to the session when present.
-      const sessionClient = clientFor(ctx);
+      const sessionClient = clientFor(ctx, { includeSession: true });
 
       const result = await performRecall(sessionClient, {
         query: userText,
@@ -252,7 +259,7 @@ export default function register(api: any) {
       // or let it be overwritten on next before_prompt_build.
 
       try {
-        const sessionClient = clientFor(ctx);
+        const sessionClient = clientFor(ctx, { includeSession: true });
 
         const result = await performCapture(
           sessionClient,

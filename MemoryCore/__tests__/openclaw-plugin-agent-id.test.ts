@@ -101,6 +101,9 @@ describe("OpenClaw plugin request agentId", () => {
     );
 
     expect(agentIds(captured, "/v3/atomic/search")).toEqual(["trader", "main"]);
+    expect(
+      captured.filter((call) => call.url.includes("/v3/atomic/search")).map((call) => call.body.session_id),
+    ).toEqual(["sess-1", "sess-2"]);
   });
 
   it("uses ctx.agentId when the sessionKey does not encode an agent", async () => {
@@ -149,6 +152,55 @@ describe("OpenClaw plugin request agentId", () => {
     );
 
     expect(agentIds(captured, "/v3/conversation/add")).toEqual(["trader"]);
+    expect(
+      captured.filter((call) => call.url.includes("/v3/conversation/add")).map((call) => call.body.session_id),
+    ).toEqual(["sess-1"]);
+  });
+
+  it("omits hook session_id when the context has none, and capture falls back to sessionKey", async () => {
+    installFetch();
+    const { hooks } = createHarness({ agentId: "panel-static" });
+
+    await hooks.get("before_prompt_build")!(
+      { prompt: "hello" },
+      { sessionKey: "agent:trader:raw-key" },
+    );
+    expect(
+      captured.filter((call) => call.url.includes("/v3/atomic/search")).map((call) => call.body.session_id),
+    ).toEqual([undefined]);
+
+    captured.length = 0;
+    await hooks.get("agent_end")!(
+      {
+        success: true,
+        messages: [{ role: "user", content: "buy the dip", timestamp: 1_700_000_000_000 }],
+      },
+      { sessionKey: "agent:trader:raw-key" },
+    );
+    expect(
+      captured.filter((call) => call.url.includes("/v3/conversation/add")).map((call) => call.body.session_id),
+    ).toEqual(["agent:trader:raw-key"]);
+  });
+
+  it("skips blank agent ids and still calls the gateway with the next id", async () => {
+    installFetch();
+    const recall = (server: Record<string, unknown>, ctx: Record<string, unknown>) =>
+      createHarness(server).hooks.get("before_prompt_build")!({ prompt: "hello" }, ctx);
+
+    await recall(
+      { agentId: "panel-static" },
+      { sessionKey: "agent:   :rest", agentId: "research", sessionId: "s-1" },
+    );
+    await recall(
+      { agentId: "panel-static" },
+      { sessionKey: "agent::rest", agentId: "   ", sessionId: "s-2" },
+    );
+    await recall(
+      { agentId: "   " },
+      { sessionKey: "legacy-session", agentId: "", sessionId: "s-3" },
+    );
+
+    expect(agentIds(captured, "/v3/atomic/search")).toEqual(["research", "panel-static", "default"]);
   });
 
   it("scopes memory and conversation search tools to the runtime agent", async () => {
@@ -158,8 +210,20 @@ describe("OpenClaw plugin request agentId", () => {
 
     await invokeTool(tools, "tdai_memory_search", ctx, { query: "positions" });
     await invokeTool(tools, "tdai_conversation_search", ctx, { query: "positions" });
+    await invokeTool(tools, "tdai_conversation_search", ctx, {
+      query: "positions",
+      session_key: "other-sess",
+    });
 
     expect(agentIds(captured, "/v3/atomic/search")).toEqual(["trader"]);
-    expect(agentIds(captured, "/v3/conversation/search")).toEqual(["trader"]);
+    expect(
+      captured.filter((call) => call.url.includes("/v3/atomic/search")).map((call) => call.body.session_id),
+    ).toEqual([undefined]);
+
+    const conversation = captured.filter((call) => call.url.includes("/v3/conversation/search"));
+    expect(conversation.map((call) => call.body.agent_id)).toEqual(["trader", "trader"]);
+    // Omitted session_key searches across sessions. The tool context session must not fill it in.
+    expect(conversation[0]?.body.session_id).toBeUndefined();
+    expect(conversation[1]?.body.session_id).toBe("other-sess");
   });
 });
